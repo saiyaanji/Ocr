@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan to Text – Bulk PDF OCR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+:root{--bg:#eef0f2;--panel:#fff;--ink:#14202b;--mute:#5d6b78;--line:#d3d9de;--accent:#0b6e8a;--accent-ink:#fff;--ok:#1d7a46;--err:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#10171d;--panel:#18222b;--ink:#e6ecf0;--mute:#93a3b0;--line:#2b3947;--accent:#4cb6d4;--accent-ink:#06222c;--ok:#5fd08e;--err:#ff8a80}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 "IBM Plex Sans",system-ui,sans-serif;padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+main{max-width:860px;margin:0 auto;display:grid;gap:16px}
+h1{font-size:26px;font-weight:600;margin:8px 0 0;letter-spacing:-.01em}
+.sub{color:var(--mute);margin:0}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+#drop{border:2px dashed var(--line);border-radius:10px;padding:34px 16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+#drop.over,#drop:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,transparent)}
+#drop b{display:block;font-size:17px;margin-bottom:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:14px}
+label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
+select,input[type=number]{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px}
+.chk{display:flex;align-items:flex-start;gap:8px;margin-top:14px;color:var(--ink);font-size:14px}
+.chk small{display:block;color:var(--mute)}
+.row{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+button{font:inherit;font-weight:500;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:10px 16px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,select:focus-visible,input:focus-visible,#drop:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.bar{height:10px;background:var(--bg);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.stats{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:10px;font-size:13px;color:var(--mute)}
+.stats b{color:var(--ink);font-weight:600}
+#status{margin:0 0 10px;font-weight:500}
+#status.err{color:var(--err)}
+#status.ok{color:var(--ok)}
+pre{margin:10px 0 0;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px;max-height:300px;overflow:auto;white-space:pre-wrap;font:13px/1.55 "IBM Plex Mono",ui-monospace,monospace}
+.pv{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Scan to Text</h1>
+    <p class="sub">Bulk OCR for scanned PDFs. Runs in your browser, so files never leave your device and page count has no server limit.</p>
+  </header>
+
+  <section>
+    <div id="drop" tabindex="0" role="button" aria-label="Choose a scanned PDF">
+      <b id="dropTitle">Drop a scanned PDF here or tap to choose</b>
+      <span class="sub" id="dropSub">Works with 700+ pages</span>
+    </div>
+    <input id="file" type="file" accept="application/pdf" class="hide">
+
+    <div class="grid">
+      <label>Language
+        <select id="lang">
+          <option value="eng">English</option>
+          <option value="hin">Hindi</option>
+          <option value="eng+hin">English + Hindi</option>
+          <option value="spa">Spanish</option>
+          <option value="fra">French</option>
+          <option value="deu">German</option>
+        </select>
+      </label>
+      <label>Speed / accuracy
+        <select id="quality">
+          <option value="1.5">Fast (150 dpi)</option>
+          <option value="2" selected>Balanced (200 dpi)</option>
+          <option value="3">Accurate (300 dpi)</option>
+        </select>
+      </label>
+      <label>Parallel workers
+        <input id="workers" type="number" min="1" max="12" value="4">
+      </label>
+      <label>From page
+        <input id="from" type="number" min="1" value="1">
+      </label>
+      <label>To page
+        <input id="to" type="number" min="1" value="1">
+      </label>
+    </div>
+
+    <label class="chk"><input type="checkbox" id="pdfOut">
+      <span>Also build a searchable PDF<small>Keeps the original look with selectable text. Uses much more memory on 700+ pages; run it in batches of about 200 pages.</small></span>
+    </label>
+
+    <div class="row">
+      <button class="primary" id="start" disabled>Start extracting</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+  </section>
+
+  <section id="progress" class="hide">
+    <p id="status">Ready</p>
+    <div class="bar"><i id="fill"></i></div>
+    <div class="stats">
+      <span>Pages <b id="sDone">0</b> / <b id="sTotal">0</b></span>
+      <span>Speed <b id="sSpeed">–</b></span>
+      <span>Time left <b id="sEta">–</b></span>
+      <span>Avg. confidence <b id="sConf">–</b></span>
+    </div>
+    <div class="pv">
+      <label>Preview page <input id="pvPage" type="number" min="1" value="1" style="width:100px"></label>
+    </div>
+    <pre id="preview">Extracted text appears here.</pre>
+  </section>
+
+  <section id="exports" class="hide">
+    <div style="font-weight:600">Download results</div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="dlJson">JSON</button>
+      <button id="dlTxt">Plain text</button>
+      <button id="dlPdf" disabled>Searchable PDF</button>
+      <button id="copy">Copy all text</button>
+    </div>
+    <div class="row" style="align-items:end">
+      <label>Chapter id (optional, e.g. A2)
+        <input id="chap" type="text" maxlength="6" style="font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;width:150px">
+      </label>
+      <button class="primary" id="dlRows">Word rows JSON (for Blackbook)</button>
+    </div>
+    <p class="sub" id="rowsNote" style="margin-top:8px;font-size:13px">Splits numbered vocabulary entries into word, part of speech, definition and Hindi. Use English + Hindi language for best results.</p>
+    <p class="sub" style="margin-top:10px;font-size:13px">If you stop early, downloads contain every page finished so far.</p>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const S = { file: null, pdf: null, results: {}, pdfParts: {}, cancel: false, running: false, lang: "eng", name: "document" };
+$("workers").value = Math.max(2, Math.min(6, (navigator.hardwareConcurrency || 4) - 1));
+
+/* ---------- file picking ---------- */
+const drop = $("drop");
+drop.onclick = () => $("file").click();
+drop.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); };
+$("file").onchange = e => e.target.files[0] && loadFile(e.target.files[0]);
+
+async function loadFile(f) {
+  if (S.running) return;
+  if (f.type !== "application/pdf" && !/\.pdf$/i.test(f.name)) return setStatus("Choose a PDF file.", "err", true);
+  try {
+    $("dropTitle").textContent = "Reading " + f.name + "…";
+    const buf = await f.arrayBuffer();
+    S.pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    S.file = f; S.name = f.name.replace(/\.pdf$/i, "");
+    const n = S.pdf.numPages;
+    $("from").value = 1; $("to").value = n; $("to").max = n; $("from").max = n;
+    $("dropTitle").textContent = f.name;
+    $("dropSub").textContent = n + " pages · " + (f.size / 1048576).toFixed(1) + " MB";
+    $("start").disabled = false;
+  } catch (err) {
+    $("dropTitle").textContent = "Drop a scanned PDF here or tap to choose";
+    setStatus("Could not open this PDF: " + err.message, "err", true);
+  }
+}
+
+/* ---------- helpers ---------- */
+function setStatus(t, cls, show) {
+  if (show) $("progress").classList.remove("hide");
+  const s = $("status"); s.textContent = t; s.className = cls || "";
+}
+const fmt = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? h + "h " + m + "m" : m ? m + "m " + (s % 60) + "s" : s + "s"; };
+function download(blob, name) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const sorted = () => Object.values(S.results).sort((a, b) => a.page - b.page);
+
+/* ---------- OCR run ---------- */
+$("stop").onclick = () => { S.cancel = true; $("stop").disabled = true; setStatus("Stopping after current pages…"); };
+$("start").onclick = run;
+
+async function run() {
+  if (!S.pdf || S.running) return;
+  const total = S.pdf.numPages;
+  const from = Math.max(1, Math.min(total, +$("from").value || 1));
+  const to = Math.max(from, Math.min(total, +$("to").value || total));
+  const workers = Math.max(1, Math.min(12, +$("workers").value || 4));
+  const scale = +$("quality").value;
+  const lang = $("lang").value;
+  const wantPdf = $("pdfOut").checked;
+  const count = to - from + 1;
+
+  S.running = true; S.cancel = false; S.results = {}; S.pdfParts = {}; S.lang = lang;
+  $("start").disabled = true; $("stop").disabled = false; $("exports").classList.add("hide");
+  $("sTotal").textContent = count; $("sDone").textContent = 0; $("fill").style.width = "0%";
+  $("sSpeed").textContent = $("sEta").textContent = $("sConf").textContent = "–";
+  setStatus("Loading OCR engine and language data…", "", true);
+
+  let wake = null;
+  try { wake = await navigator.wakeLock?.request("screen"); } catch (e) {}
+
+  const scheduler = Tesseract.createScheduler();
+  try {
+    await Promise.all(Array.from({ length: workers }, async () => scheduler.addWorker(await Tesseract.createWorker(lang, 1))));
+  } catch (err) {
+    S.running = false; $("start").disabled = false; $("stop").disabled = true;
+    return setStatus("Could not load the OCR engine: " + err.message + ". Check your connection and try again.", "err");
+  }
+
+  let next = from, done = 0, confSum = 0, failed = 0;
+  const t0 = Date.now();
+  setStatus("Extracting text…");
+
+  async function lane() {
+    while (!S.cancel) {
+      const p = next++;
+      if (p > to) return;
+      try {
+        const page = await S.pdf.getPage(p);
+        const vp = page.getViewport({ scale });
+        const c = document.createElement("canvas");
+        c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        page.cleanup();
+        const { data } = await scheduler.addJob("recognize", c, {}, wantPdf ? { text: true, pdf: true } : { text: true });
+        c.width = c.height = 0;
+        S.results[p] = { page: p, text: data.text.trim(), confidence: Math.round(data.confidence) };
+        if (wantPdf && data.pdf) S.pdfParts[p] = new Uint8Array(data.pdf);
+        confSum += data.confidence;
+        $("pvPage").value = p; showPreview(p);
+      } catch (err) {
+        failed++;
+        S.results[p] = { page: p, text: "", confidence: 0, error: String(err.message || err) };
+      }
+      done++;
+      const el = (Date.now() - t0) / 1000, rate = done / el;
+      $("sDone").textContent = done;
+      $("fill").style.width = (done / count * 100) + "%";
+      $("sSpeed").textContent = rate.toFixed(2) + " pages/s";
+      $("sEta").textContent = fmt((count - done) / rate);
+      $("sConf").textContent = Math.round(confSum / Math.max(1, done - failed)) + "%";
+    }
+  }
+  await Promise.all(Array.from({ length: workers }, lane));
+  await scheduler.terminate();
+  try { wake?.release(); } catch (e) {}
+
+  S.running = false; $("start").disabled = false; $("stop").disabled = true;
+  $("exports").classList.remove("hide");
+  $("dlPdf").disabled = !Object.keys(S.pdfParts).length;
+  setStatus((S.cancel ? "Stopped. " : "Done. ") + done + " pages in " + fmt((Date.now() - t0) / 1000) + (failed ? " · " + failed + " failed" : "") + ".", failed ? "err" : "ok");
+}
+
+function showPreview(p) {
+  const r = S.results[p];
+  $("preview").textContent = r ? (r.text || "(No text found on this page)") : "Page " + p + " has not been processed.";
+}
+$("pvPage").onchange = e => showPreview(+e.target.value);
+
+/* ---------- exports ---------- */
+$("dlJson").onclick = () => {
+  const pages = sorted();
+  const out = { source: S.file?.name, language: S.lang, total_pages_in_file: S.pdf?.numPages, pages_extracted: pages.length, extracted_at: new Date().toISOString(), pages };
+  download(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }), S.name + ".json");
+};
+const allText = () => sorted().map(r => "--- Page " + r.page + " ---\n" + r.text).join("\n\n");
+$("dlTxt").onclick = () => download(new Blob([allText()], { type: "text/plain;charset=utf-8" }), S.name + ".txt");
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText(allText()); $("copy").textContent = "Copied"; } catch (e) { $("copy").textContent = "Copy failed"; }
+  setTimeout(() => $("copy").textContent = "Copy all text", 1800);
+};
+/* ---------- vocabulary rows (Blackbook import) ---------- */
+function parseRows(sortedPages) {
+  const POS = "N|V|Adj|Adv|Prep|Conj|Pron|Interj|Phr";
+  const head = new RegExp("^\\s*(\\d{1,4})\\s*[.)|:\\-]?\\s+([A-Za-z][A-Za-z'’\\- ]{1,40}?)\\s+((?:" + POS + ")\\.?(?:\\s*/\\s*(?:" + POS + ")\\.?)*)\\s+(.+)$", "i");
+  const raw = []; let cur = null;
+  for (const pg of sortedPages) {
+    for (const ln of pg.text.split(/\n+/)) {
+      const line = ln.trim(); if (!line) continue;
+      const m = line.match(head);
+      if (m) { if (cur) raw.push(cur); cur = { sn: +m[1], word: m[2].trim(), pos: m[3].replace(/\s+/g, ""), rest: m[4], page: pg.page }; }
+      else if (cur && cur.page === pg.page) cur.rest += " " + line;
+    }
+  }
+  if (cur) raw.push(cur);
+  return raw.map(o => {
+    let rest = o.rest.trim(), r = "", flags = "";
+    const t = rest.match(/\s+(?:(\d+\s*\(\d+\))\s*)?([*~]+)?\s*$/);
+    if (t && (t[1] || t[2])) { r = (t[1] || "").replace(/\s+/g, " "); flags = t[2] || ""; rest = rest.slice(0, t.index).trim(); }
+    const i = rest.search(/[\u0900-\u097F]/);
+    const definition = (i < 0 ? rest : rest.slice(0, i)).trim();
+    const hindi = i < 0 ? "" : rest.slice(i).trim();
+    return { sn: o.sn, word: o.word, pos: o.pos, definition, hindi, r, flags, page: o.page };
+  });
+}
+$("dlRows").onclick = () => {
+  const entries = parseRows(sorted());
+  const chapter = ($("chap").value || "").trim().toUpperCase();
+  $("rowsNote").textContent = entries.length
+    ? entries.length + " word rows found. Import the downloaded file in the Blackbook app" + (chapter ? "." : " and type the chapter id in its box first.")
+    : "No word rows found. The page layout may not match numbered entries; download the JSON and send it to Claude to adjust the parser.";
+  if (!entries.length) return;
+  download(new Blob([JSON.stringify({ chapter, entries }, null, 2)], { type: "application/json" }), (chapter || S.name) + "-words.json");
+};
+
+$("dlPdf").onclick = async () => {
+  const btn = $("dlPdf"); btn.disabled = true;
+  try {
+    const out = await PDFLib.PDFDocument.create();
+    const nums = Object.keys(S.pdfParts).map(Number).sort((a, b) => a - b);
+    for (let i = 0; i < nums.length; i++) {
+      btn.textContent = "Merging " + (i + 1) + "/" + nums.length + "…";
+      const src = await PDFLib.PDFDocument.load(S.pdfParts[nums[i]]);
+      const [pg] = await out.copyPages(src, [0]);
+      out.addPage(pg);
+      if (i % 25 === 0) await new Promise(r => setTimeout(r));
+    }
+    const bytes = await out.save();
+    download(new Blob([bytes], { type: "application/pdf" }), S.name + "-searchable.pdf");
+  } catch (err) { setStatus("Could not build the PDF: " + err.message, "err"); }
+  btn.textContent = "Searchable PDF"; btn.disabled = false;
+};
+</script>
+</body>
+</html>
